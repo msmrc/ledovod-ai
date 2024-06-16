@@ -86,8 +86,8 @@ async def get_easy_ghantt():
     G = load_graph_from_excel("data/graph/graph_data.xlsx")
     
     # Чтение данных о заявках и ледоколах из CSV файлов
-    requests = pd.read_csv('DATA/requests/requests_fixed.csv')
-    ledokoly = pd.read_csv('DATA/icebreakers/icebreakers.csv')
+    requests = pd.read_csv('data/requests/requests_fixed.csv')
+    ledokoly = pd.read_csv('data/icebreakers/icebreakers.csv')
 
     # Преобразование строк с датами в объекты datetime
     requests['start_date'] = pd.to_datetime(requests['start_date'], format='%d-%m-%y %H:%M')
