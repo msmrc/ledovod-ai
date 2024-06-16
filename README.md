@@ -26,7 +26,9 @@
 
 ## Алгоритм поиска оптимального пути на графе
 
-<img src="https://upload.wikimedia.org/wikipedia/commons/e/e4/DijkstraDemo.gif" width="400">
+The idea of Dijkstra’s algorithm is really easy. Suppose we drop a huge colony of ants onto the source node uuu at time 000. They split off from there and follow all possible paths through the graph at a rate of one unit per second. Then the first ant who finds the target node vvv will do so at time d(u,v)d(u,v)d(u, v) seconds, where d(u,v)d(u,v)d(u, v) is the shortest distance from uuu to vvv. How do we find when that is? We just need to watch the expanding wavefront of ants.
+
+<img src="https://qph.cf2.quoracdn.net/main-qimg-cfa6e0006734b0bd93431c754a8c42c4" width="400">
 
 
 ### Симуляция отжига для оптимизации расписания
