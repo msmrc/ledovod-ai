@@ -12,6 +12,16 @@ import pandas as pd
 import networkx as nx
 from datetime import datetime, timedelta
 
+import os
+import pandas as pd
+import networkx as nx
+import math
+from datetime import datetime
+
+"""
+1. Функции для работы с ледовыми условиями на отрезке пути
+"""
+
 # Функция для преобразования широты и долготы в координаты сетки
 def lat_lon_to_grid(lat, lon, lat_grid, lon_grid):
     lat_values = lat_grid.values.flatten()
@@ -149,11 +159,298 @@ def visualize_ice_conditions_with_path(sheet_name, title, file_path, start_point
     return min_ice, max_ice, avg_ice, avg_lowest_one_third_ice
 
 
+"""
+2. Функции для создания графа и работы с ним
+"""
 
-
+# Функция для расчета расстояния между двумя координатами с использованием формулы гаверсинуса
 def haversine(coord1, coord2):
-    # ...
+    R = 3440.065  # Радиус Земли в морских милях
+    lat1, lon1 = coord1
+    lat2, lon2 = coord2
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return R * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
 
+# Класс для работы с графами на основе данных о точках и ребрах
+class GraphMap:
+    def __init__(self, points_path, edges_path, ice_file_path, date=None):
+        self.points_path = points_path
+        self.edges_path = edges_path
+        self.ice_file_path = ice_file_path
+        self.date = date
+        self.g_points = None
+        self.g_edges = None
+        self.G = None
+        self.G_undirected = None
+
+    # Метод для загрузки данных из файлов
+    def load_data(self):
+        start_time = datetime.now()
+        print(f"[{self.date}] Loading data...")
+        self.g_points = pd.read_excel(self.points_path, sheet_name='points').iloc[:, :-2]
+        self.g_edges = pd.read_excel(self.edges_path, sheet_name='edges')
+        self.g_points.loc[self.g_points['longitude'] < 0, 'longitude'] += 360
+        end_time = datetime.now()
+        print(f"[{self.date}] Data loaded in {end_time - start_time}")
+
+    # Метод для создания графа на основе загруженных данных
+    def create_graph(self):
+        start_time = datetime.now()
+        print(f"[{self.date}] Creating graph...")
+        self.G = nx.DiGraph()
+        
+        for _, row in self.g_edges.iterrows():
+            start_point = self.g_points[self.g_points['point_id'] == row['start_point_id']].iloc[0]
+            end_point = self.g_points[self.g_points['point_id'] == row['end_point_id']].iloc[0]
+            start_coords = (start_point['latitude'], start_point['longitude'])
+            end_coords = (end_point['latitude'], end_point['longitude'])
+
+            min_ice, max_ice, avg_ice, avg_lowest_one_third_ice = calculate_ice_statistics_only(self.date, self.ice_file_path, start_coords, end_coords)
+            distance = haversine(start_coords, end_coords)
+            
+            self.G.add_edge(
+                row['start_point_id'], 
+                row['end_point_id'], 
+                distance=distance, 
+                status=row['status'],
+                min_ice=min_ice,
+                max_ice=max_ice,
+                avg_ice=avg_ice,
+                avg_lowest_one_third_ice=avg_lowest_one_third_ice
+            )
+
+        self.G_undirected = self.G.to_undirected()
+        end_time = datetime.now()
+        print(f"[{self.date}] Graph created in {end_time - start_time}")
+
+    # Метод для вычисления кратчайшего пути между двумя точками
+    def calculate_shortest_path(self, source_id, target_id):
+        return nx.dijkstra_path(self.G_undirected, source=source_id, target=target_id, weight='distance')
+
+    # Метод для получения длины пути
+    def get_path_length(self, path):
+        return int(sum(self.G_undirected[start][end]['distance'] for start, end in zip(path[:-1], path[1:])))
+
+    # Метод для поиска пути между двумя точками
+    def find_path(self, source_id, target_id):
+        start_time = datetime.now()
+        self.load_data()
+        self.create_graph()
+        shortest_path = self.calculate_shortest_path(source_id, target_id)
+        path_length = self.get_path_length(shortest_path)
+        end_time = datetime.now()
+        print(f"[{self.date}] Path found in {end_time - start_time}")
+        return [int(point_id) for point_id in shortest_path], path_length
+
+    # Метод для сохранения графа в файл
+    def save_graph(self, date, directory):
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        nodes_data = []
+        for node in self.G.nodes:
+            node_data = self.g_points[self.g_points['point_id'] == node].iloc[0]
+            connections = list(self.G.neighbors(node)) + [n for n in self.G.predecessors(node)]
+            nodes_data.append({
+                'id': node,
+                'name': node_data.get('name', ''),
+                'latitude': node_data['latitude'],
+                'longitude': node_data['longitude'],
+                'connections': connections,
+                'type': ''
+            })
+        edges_data = []
+        for start, end, data in self.G.edges(data=True):
+            edges_data.append({
+                'start_point_id': start,
+                'end_point_id': end,
+                'distance': data['distance'],
+                'ice_conditions_max': data['max_ice'],
+                'ice_conditions_min': data['min_ice'],
+                'ice_conditions_average': data['avg_ice'],
+                'ice_conditions_avg_lowest_one_third': data['avg_lowest_one_third_ice']
+            })
+        nodes_df = pd.DataFrame(nodes_data)
+        edges_df = pd.DataFrame(edges_data)
+
+        file_path = os.path.join(directory, f'graph_data_{date}.xlsx')
+        with pd.ExcelWriter(file_path) as writer:
+            nodes_df.to_excel(writer, sheet_name='nodes', index=False)
+            edges_df.to_excel(writer, sheet_name='edges', index=False)
+
+    # Метод для загрузки графа из файла
+    def load_graph(self, date, directory):
+        file_path = os.path.join(directory, f'graph_data_{date}.xlsx')
+        nodes_df = pd.read_excel(file_path, sheet_name='nodes')
+        edges_df = pd.read_excel(file_path, sheet_name='edges')
+        
+        self.g_points = nodes_df  # Загрузка данных о точках
+        self.G = nx.DiGraph()
+        for _, row in edges_df.iterrows():
+            self.G.add_edge(
+                row['start_point_id'], 
+                row['end_point_id'], 
+                distance=row['distance'], 
+                ice_conditions_max=row['ice_conditions_max'],
+                ice_conditions_min=row['ice_conditions_min'],
+                ice_conditions_average=row['ice_conditions_average'],
+                ice_conditions_avg_lowest_one_third=row['ice_conditions_avg_lowest_one_third']
+            )
+        self.G_undirected = self.G.to_undirected()
+
+# Функция для обработки данных за определенную дату
+def process_date(date, points_path, edges_path, ice_file_path, directory):
+    print(f"Processing {date}...")
+    start_time = datetime.now()
+    graph_map = GraphMap(points_path, edges_path, ice_file_path, date)
+    graph_map.load_data()
+    graph_map.create_graph()
+    graph_map.save_graph(date, directory)
+    end_time = datetime.now()
+    print(f"Processing {date} completed in {end_time - start_time}")
+    
+    
+"""
+3. Правила проверки проходимости и скорости судна
+"""
+
+# Функция для проверки доступности участка пути в зависимости от условий льда и класса льда
+def check_accessibility(ice_conditions_average, ice_class):
+    if ice_class in [0, 1, 2, 3] and ice_conditions_average < 14:
+        return 3, False  # Движение запрещено
+    if ice_conditions_average < 10:
+        return 3, False  # Движение запрещено
+    if ice_conditions_average > 20:
+        return 0, True  # Самостоятельное движение
+    if 10 <= ice_conditions_average <= 14:
+        if ice_class in [4, 5, 6, 7]:
+            return 1, True  # Движение с проводкой ледокола
+        elif ice_class in [10, 11]:
+            return 0, True  # Самостоятельное движение
+        else:
+            return 3, False  # Движение запрещено
+    if 15 <= ice_conditions_average <= 19:
+        if ice_class in [0, 1, 2, 3, 4, 5, 6]:
+            return 1, True  # Движение с проводкой ледокола
+        elif ice_class in [7, 10, 11]:
+            return 0, True  # Самостоятельное движение
+        else:
+            return 3, False  # Движение запрещено
+    return 3, False  # Добавим дефолтное возвращение значения, если не одно из условий не выполнено
+
+# Функция для расчета средней скорости движения на участке в зависимости от условий льда и проводки ледокола
+def calculate_average_speed(ice_conditions_average, ice_class, ship_speed=20, provodka=False, icebreaker_class=10):
+    """
+    Функция calculate_average_speed возвращает среднюю скорость движения на участке в зависимости от условий льда и проводки ледокола.
+    """
+    
+    if 10 <= ice_conditions_average <= 14:
+        if ice_class in [4, 5, 6]:
+            avg_speed = ship_speed * 0.7  # Замедление на 30%
+        elif ice_class == 7:
+            avg_speed = ship_speed * 0.8  # Замедление на 20%
+        elif ice_class == 11:
+            avg_speed = 12  # Скорость 12 узлов
+        elif ice_class == 10:
+            avg_speed = 9  # Скорость 9 узлов
+        else:
+            avg_speed = 0  # Непроходимый участок
+    elif 15 <= ice_conditions_average <= 19:
+        if ice_class in [0, 1, 2, 3]:
+            avg_speed = ship_speed * 0.5  # Замедление на 50%
+        elif ice_class in [4, 5, 6]:
+            avg_speed =ship_speed * 0.8  # Замедление на 20%
+        elif ice_class == 7:
+            avg_speed = ship_speed * 0.6 # Замедление на 40%
+        elif ice_class == 11:
+            avg_speed = 17 # Скорость 17 узлов
+        elif ice_class == 10:
+            avg_speed =15.5  # Скорость 15.5 узлов
+        else:
+            avg_speed = 0  # Непроходимый участок
+    elif ice_conditions_average >= 20:
+        if ice_class in [0, 1, 2, 3, 4, 5, 6, 7]:
+            avg_speed = ship_speed  # Без замедления
+        else:
+            if ice_class == 10:
+                avg_speed = 18.5  # Скорость 18.5 узлов
+            elif ice_class == 11:
+                avg_speed = 21.5  # Скорость 21.5 узлов
+    
+    icebreaker_speed = avg_speed
+    
+    if provodka:
+        if icebreaker_class == 10:
+            if 19 < ice_conditions_average:
+                icebreaker_speed = 18.5
+            elif 15 <= ice_conditions_average <= 19:
+                icebreaker_speed = 15.5   
+            if 10 <= ice_conditions_average <= 14:
+                icebreaker_speed = 9
+            
+        elif icebreaker_class == 11:
+            if 19 < ice_conditions_average:
+                icebreaker_speed = 21.5
+            elif 15 <= ice_conditions_average <= 19:
+                icebreaker_speed = 17   
+            if 10 <= ice_conditions_average <= 14:
+                icebreaker_speed = 12
+
+    return round(min(avg_speed, icebreaker_speed, 1))
+
+def calculate_traverse_time(distance, average_speed):
+    if average_speed == 0:
+        return 0
+    return round(distance / average_speed, 2)
+
+
+"""
+4. Функции для работы с загрузкой обработанного графа и формула пересчёта весов рёбер под конкретное судно
+"""
+
+# Функция для загрузки графа из файла Excel
+def load_graph_from_excel(file_path):
+    # Load node and edge data from the Excel file
+    nodes_df = pd.read_excel(file_path, sheet_name='nodes')
+    edges_df = pd.read_excel(file_path, sheet_name='edges')
+
+    # Initialize an undirected graph
+    G = nx.Graph()
+
+    # Add nodes to the graph
+    for _, row in nodes_df.iterrows():
+        G.add_node(row['id'], name=row['name'], latitude=row['latitude'], longitude=row['longitude'], connections=row['connections'], type=row['type'])
+
+    # Add edges to the graph
+    for _, row in edges_df.iterrows():
+        ice_conditions_avg = max(row['ice_conditions_average'], 10)
+        G.add_edge(
+            row['start_point_id'], 
+            row['end_point_id'], 
+            distance=round(row['distance']), 
+            ice_conditions_max=round(row['ice_conditions_max']),
+            ice_conditions_min=round(row['ice_conditions_min']),
+            ice_conditions_average=round(ice_conditions_avg),
+            ice_conditions_avg_lowest_one_third=round(row['ice_conditions_avg_lowest_one_third'])
+        )
+
+    return G
+
+# Функция для обновления весов рёбер графа под конкретное судно
+def update_weights(G, ship_speed, ice_class, icebreaker_class=10):
+    for u, v, data in G.edges(data=True):
+        ice_conditions_avg = data['ice_conditions_average']
+        provodka_needed, _ = check_accessibility(ice_conditions_avg, ice_class)
+        average_speed = calculate_average_speed(ice_conditions_avg, ice_class, ship_speed, provodka_needed, icebreaker_class)
+        traverse_time = calculate_traverse_time(data['distance'], average_speed)
+        
+        data['weight'] = round(traverse_time, 2)
+        data['provodka_needed'] = provodka_needed
+        
+    
 def check_accessibility(ice_conditions_average, ice_class):
     # ...
 

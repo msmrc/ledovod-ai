@@ -24,6 +24,10 @@
 5. Строим граф, добавляя на рёбра метаданные о проходимости на участках пути.
 6. Сохраняем.
 
+## Алгоритм поиска оптимального пути на графе
+
+<img src="https://upload.wikimedia.org/wikipedia/commons/5/5d/Dijkstra_Animation.gif" width="400">
+
 
 ### Симуляция отжига для оптимизации расписания
 <img src="https://upload.wikimedia.org/wikipedia/commons/1/10/Travelling_salesman_problem_solved_with_simulated_annealing.gif" width="400">
