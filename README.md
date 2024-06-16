@@ -26,7 +26,7 @@
 
 ## Алгоритм поиска оптимального пути на графе
 
-<img src="https://upload.wikimedia.org/wikipedia/commons/5/5d/Dijkstra_Animation.gif" width="400">
+<img src="https://upload.wikimedia.org/wikipedia/commons/e/e4/DijkstraDemo.gif" width="400">
 
 
 ### Симуляция отжига для оптимизации расписания
