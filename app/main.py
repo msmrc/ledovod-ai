@@ -15,6 +15,10 @@ async def update_graph(file: UploadFile = File(...)):
     G = load_graph_from_excel("data/graph/graph_data.xlsx")
     return {"message": "Graph updated successfully"}
 
+@app.get("/hello_world")
+async def hello_world():
+    return {"message": "Hello, World!"}
+
 @app.post("/schedule")
 async def generate_schedule(file: UploadFile = File(...)):
     # Сохраняем полученный файл заявок
