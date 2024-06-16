@@ -4,6 +4,7 @@ from fastapi import FastAPI, UploadFile, File
 from .utils import *
 import pandas as pd
 import numpy as np
+import json
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -78,3 +79,35 @@ async def generate_default_schedule():
     best_schedule_serializable = convert_to_json_serializable(best_schedule)
     
     return best_schedule_serializable
+
+@app.get("/get_easy_ghantt")
+async def get_easy_ghantt():
+    # Загрузка графа
+    G = load_graph_from_excel("data/graph/graph_data.xlsx")
+    
+    # Чтение данных о заявках и ледоколах из CSV файлов
+    requests = pd.read_csv('DATA/requests/requests_fixed.csv')
+    ledokoly = pd.read_csv('DATA/icebreakers/icebreakers.csv')
+
+    # Преобразование строк с датами в объекты datetime
+    requests['start_date'] = pd.to_datetime(requests['start_date'], format='%d-%m-%y %H:%M')
+    ledokoly['start_date'] = pd.to_datetime(ledokoly['start_date'], format='%d-%m-%y %H:%M')
+
+    # Преобразование в словари
+    ships = requests.to_dict('records')
+    icebreakers = ledokoly.to_dict('records')
+
+    # Инициализация ключей 'availability_time' и 'start_id_real' для каждого ледокола
+    for icebreaker in icebreakers:
+        icebreaker['availability_time'] = icebreaker['start_date']
+        icebreaker['start_id_real'] = icebreaker.get('start_id_real') 
+
+    # Очистка предыдущего результата
+    scheduling_result = None
+    # Создание расписания
+    scheduling_result = fcfs_scheduling2(ships, icebreakers, G)
+
+    # Преобразование результата в нужный формат
+    transformed_result = transform_scheduling_result(scheduling_result)
+    
+    return transformed_result

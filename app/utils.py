@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from geopy.distance import geodesic
 from scipy.spatial import KDTree
+import json
 
 
 """
@@ -719,3 +720,249 @@ def cost_function(schedule):
     for entry in schedule['ship_schedule']:
         total_ship_waiting_time += entry['wait_time_hours']
     return total_ship_waiting_time
+
+"""
+9. Функции для построения графов с упрощенным выводом и проверками 
+"""
+
+# Функция для поиска пути и времени между двумя точками
+def get_path_and_time(G, speed, ice_class, start_id, end_id):
+    path = find_path(G, speed, ice_class, ice_class, start_id, end_id)
+    time = calculate_travel_time(path)
+    return path, time
+
+# Функция для расчета общего времени для пути
+def calculate_travel_time(path):
+    total_time = 0
+    for segment in path:
+        total_time += segment['time']
+    return round(total_time)
+
+def assign_icebreaker_to_ship(G, icebreaker, ship):
+    datetime_format = '%d-%m-%y %H:%M'
+
+    # Время доступности ледокола после завершения текущего задания
+    icebreaker_availability_time = icebreaker['availability_time']
+    icebreaker_position = icebreaker['start_id_real']
+    
+    # Время доплытия от текущей позиции ледокола до отправной точки корабля
+    path_to_ship, time_to_ship = get_path_and_time(G, icebreaker['speed'], icebreaker['ice_class_int'], icebreaker_position, ship['start_id_real'])
+    arrival_time = icebreaker_availability_time + timedelta(hours=time_to_ship)
+    
+    # Время ожидания ледокола до прибытия к кораблю
+    ship_start_time = ship['start_date']
+    if arrival_time < ship_start_time:
+        icebreaker_waiting_for_ship = round((ship_start_time - arrival_time).total_seconds() / 3600.0)
+        ship_waiting_time = 0
+    else:
+        icebreaker_waiting_for_ship = 0
+        ship_waiting_time = round((arrival_time - ship_start_time).total_seconds() / 3600.0)
+    
+    # Время пути ледокола вместе с кораблем
+    path_with_ship, time_to_destination = get_path_and_time(G, ship['speed'], ship['ice_class_int'], ship['start_id_real'], ship['end_id_real'])
+    icebreaker_position_after_delivery = ship['end_id_real']
+    
+    # Время окончания пути вместе с ледоколом
+    end_time_with_ship = ship_start_time + timedelta(hours=ship_waiting_time + time_to_ship + time_to_destination)
+    
+    icebreaker_info = {
+        'initial_position': icebreaker_position,  # Начальная позиция ледокола перед началом текущего задания
+        'path_to_ship': path_to_ship,  # Путь ледокола до корабля, который нуждается в проводке
+        'time_to_ship': time_to_ship,  # Время, необходимое ледоколу, чтобы доплыть до корабля
+        'waiting_for_ship': icebreaker_waiting_for_ship,  # Время ожидания ледокола перед началом проводки корабля
+        'path_with_ship': path_with_ship,  # Путь ледокола вместе с кораблем
+        'start_time_with_ship': ship_start_time.strftime(datetime_format),  # Время начала проводки корабля ледоколом
+        'time_to_destination': time_to_destination,  # Время, необходимое для проводки корабля до конечной точки
+        'arrival_time': arrival_time.strftime(datetime_format),  # Время прибытия ледокола к кораблю
+        'end_time_with_ship': end_time_with_ship.strftime(datetime_format),  # Время окончания проводки корабля ледоколом
+        'position_after_successful_delivery': icebreaker_position_after_delivery  # Позиция ледокола после завершения проводки корабля
+    }
+
+    ship_info = {
+        'ship_waiting_time': ship_waiting_time,  # Время ожидания корабля до прибытия ледокола
+        'start_time_with_icebreaker': ship_start_time.strftime(datetime_format),  # Время начала проводки корабля ледоколом
+        'ship_path': path_with_ship,  # Путь корабля вместе с ледоколом
+        'ship_path_time': time_to_destination,  # Время, необходимое для проводки корабля до конечной точки
+        'end_time_with_icebreaker': end_time_with_ship.strftime(datetime_format)  # Время окончания проводки корабля ледоколом
+    }
+
+
+
+    return icebreaker_info, ship_info
+
+def fcfs_scheduling2(ships, icebreakers, G):
+    datetime_format = '%d-%m-%y %H:%M'
+    
+    # Сортируем корабли по времени начала, чтобы обработать их в порядке их готовности к отправке
+    ships.sort(key=lambda x: x['start_date'])
+    
+    icebreaker_schedule = []  # Расписание для ледоколов
+    ship_schedule = []  # Расписание для кораблей
+    total_times = initialize_total_times()  # Инициализируем общие временные показатели
+
+    for ship in ships:
+        # Находим лучший ледокол для текущего корабля
+        best_icebreaker, best_result = find_best_icebreaker(G, icebreakers, ship)
+
+        if best_icebreaker and best_result:
+
+            # Проверяем, что ледокол не занят другим заданием на момент начала этого задания
+            if best_icebreaker['availability_time'] <= ship['start_date']:
+                # Обновляем информацию о ледоколе после назначения кораблю
+                update_icebreaker(best_icebreaker, best_result[0], datetime_format)
+                
+                # Обновляем расписания ледоколов и кораблей
+                update_schedules(icebreaker_schedule, ship_schedule, best_icebreaker, ship, best_result, datetime_format)
+                
+                # Обновляем общие временные показатели
+                update_total_times(total_times, best_result)
+            else:
+
+                # Если ледокол не доступен, добавляем время ожидания к доступности ледокола
+                best_icebreaker['availability_time'] += timedelta(hours=best_result[0]['time_to_ship'])
+                update_icebreaker(best_icebreaker, best_result[0], datetime_format)
+                update_schedules(icebreaker_schedule, ship_schedule, best_icebreaker, ship, best_result, datetime_format)
+                update_total_times(total_times, best_result)
+
+
+    # Сводка общих временных затрат
+    summary = summarize_total_times(total_times)
+    
+    # Возвращаем расписание ледоколов, кораблей и сводку
+    return {
+        'icebreaker_schedule': icebreaker_schedule,
+        'ship_schedule': ship_schedule,
+        'summary': summary
+    }
+
+def initialize_total_times():
+    # Инициализируем словарь для хранения общих временных затрат
+    return {
+        'total_ship_waiting_time': 0,
+        'total_icebreaker_waiting_time': 0,
+        'total_icebreaker_travel_time': 0,
+        'total_ship_travel_time': 0
+    }
+
+def find_best_icebreaker(G, icebreakers, ship):
+    best_icebreaker = None
+    best_result = None
+
+    for icebreaker in icebreakers:
+        result = assign_icebreaker_to_ship(G, icebreaker, ship)
+
+        # Выбираем ледокол, который минимизирует время ожидания корабля
+        if not best_result or result[1]['ship_waiting_time'] < best_result[1]['ship_waiting_time']:
+            best_icebreaker = icebreaker
+            best_result = result
+
+    return best_icebreaker, best_result
+
+def update_icebreaker(icebreaker, result, datetime_format):
+    # Обновляем позицию ледокола после завершения текущего задания
+    icebreaker['start_id_real'] = result['position_after_successful_delivery']
+    # Обновляем время доступности ледокола после завершения текущего задания
+    icebreaker['availability_time'] = pd.to_datetime(result['end_time_with_ship'], format=datetime_format)
+
+def update_schedules(icebreaker_schedule, ship_schedule, icebreaker, ship, result, datetime_format):
+    icebreaker_info, ship_info = result
+    
+    # Обновляем расписание для ледокола
+    icebreaker_schedule.append({
+        'icebreaker_id': icebreaker['ship_id'],
+        'icebreaker_name': icebreaker['ship_name'],
+        'initial_position': icebreaker_info['initial_position'],  # Начальная позиция ледокола
+        'path_to_ship': icebreaker_info['path_to_ship'],  # Путь ледокола до корабля
+        'time_to_ship': icebreaker_info['time_to_ship'],  # Время пути до корабля
+        'waiting_for_ship': icebreaker_info['waiting_for_ship'],  # Время ожидания корабля
+        'path_with_ship': icebreaker_info['path_with_ship'],  # Путь с кораблем
+        'start_time_with_ship': icebreaker_info['start_time_with_ship'],  # Время начала пути с кораблем
+        'time_to_destination': icebreaker_info['time_to_destination'],  # Время пути до пункта назначения
+        'arrival_time': icebreaker_info['arrival_time'],  # Время прибытия к кораблю
+        'end_time_with_ship': icebreaker_info['end_time_with_ship'],  # Время окончания пути с кораблем
+        'position_after_successful_delivery': icebreaker_info['position_after_successful_delivery'],  # Позиция после доставки
+        'ship_id': ship['ship_id'],
+        'ship_name': ship['ship_name']
+    })
+    
+    # Обновляем расписание для корабля
+    ship_schedule.append({
+        'ship_id': ship['ship_id'],
+        'ship_name': ship['ship_name'],
+        'ship_waiting_time': ship_info['ship_waiting_time'],  # Время ожидания корабля
+        'start_time_with_icebreaker': ship_info['start_time_with_icebreaker'],  # Время начала пути с ледоколом
+        'ship_path': ship_info['ship_path'],  # Путь корабля с ледоколом
+        'ship_path_time': ship_info['ship_path_time'],  # Время пути корабля с ледоколом
+        'end_time_with_icebreaker': ship_info['end_time_with_icebreaker']  # Время окончания пути с ледоколом
+    })
+
+
+def update_total_times(total_times, result):
+    icebreaker_info, ship_info = result  # Декомпозиция result на icebreaker_info и ship_info
+    # Обновляем общие временные затраты на основе текущего задания
+    total_times['total_ship_waiting_time'] += ship_info['ship_waiting_time']
+    total_times['total_icebreaker_waiting_time'] += icebreaker_info.get('waiting_for_ship', 0)
+    total_times['total_icebreaker_travel_time'] += icebreaker_info['time_to_ship'] + icebreaker_info['time_to_destination']
+    total_times['total_ship_travel_time'] += ship_info['ship_path_time']
+
+
+
+def summarize_total_times(total_times):
+    # Сводка общих временных затрат с округлением до целых значений
+    return {
+        'total_ship_waiting_time': round(total_times['total_ship_waiting_time']),
+        'total_icebreaker_waiting_time': round(total_times['total_icebreaker_waiting_time']),
+        'total_icebreaker_travel_time': round(total_times['total_icebreaker_travel_time']),
+        'total_ship_travel_time': round(total_times['total_ship_travel_time'])
+    }
+
+
+# Функция для преобразования данных в нужный формат JSON
+def transform_scheduling_result(scheduling_result):
+    transformed_data = []
+
+    for entry in scheduling_result['icebreaker_schedule']:
+        transformed_data.append({
+            'name': entry['icebreaker_name'],
+            'id': entry['icebreaker_id'],
+            'type': 'icebreaker',
+            'travel_type': 'self',
+            'initial_position': int(entry['initial_position']),
+            'final_position': int(entry['path_to_ship'][-1]['to']),
+            'departure_time': entry['arrival_time'],
+            'arrival_time': entry['start_time_with_ship']
+        })
+        transformed_data.append({
+            'name': entry['icebreaker_name'],
+            'id': entry['icebreaker_id'],
+            'type': 'icebreaker',
+            'travel_type': 'with ship',
+            'initial_position': int(entry['path_to_ship'][-1]['to']),
+            'final_position': int(entry['position_after_successful_delivery']),
+            'departure_time': entry['start_time_with_ship'],
+            'arrival_time': entry['end_time_with_ship']
+        })
+
+    for entry in scheduling_result['ship_schedule']:
+        transformed_data.append({
+            'name': entry['ship_name'],
+            'id': entry['ship_id'],
+            'type': 'ship',
+            'travel_type': 'self',
+            'initial_position': int(entry['ship_path'][0]['from']),
+            'final_position': int(entry['ship_path'][0]['from']),
+            'departure_time': entry['start_time_with_icebreaker'],
+            'arrival_time': entry['start_time_with_icebreaker']
+        })
+        transformed_data.append({
+            'name': entry['ship_name'],
+            'id': entry['ship_id'],
+            'type': 'ship',
+            'travel_type': 'with icebreaker',
+            'initial_position': int(entry['ship_path'][0]['from']),
+            'final_position': int(entry['ship_path'][-1]['to']),
+            'departure_time': entry['start_time_with_icebreaker'],
+            'arrival_time': entry['end_time_with_icebreaker']
+        })
+
+    return transformed_data
