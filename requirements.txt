@@ -7,3 +7,6 @@ geopy
 scipy
 folium
 uvicorn
+Basemap
+KDTree
+geodesic
