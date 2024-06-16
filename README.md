@@ -11,7 +11,7 @@
 
 Идеальное решение для проходимости судов бы выглядело вот так:
 
-<img src="https://i.imgur.com/VbDXIOc.png" width="600">
+<img src="https://i.imgur.com/VbDXIOc.png" width="800">
 
 Где каждое судно проходит оптимальный путь без ожиданий.
 
@@ -39,7 +39,7 @@
 
 Граф с данными о проходимости льда:
 
-<img src="https://i.imgur.com/JDEUuD6.png" width="600">
+<img src="https://i.imgur.com/JDEUuD6.png" width="800">
 
 ## Алгоритм поиска оптимального пути на графе
 
