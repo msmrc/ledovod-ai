@@ -5,7 +5,17 @@ from .utils import *
 import pandas as pd
 import numpy as np
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"], 
+)
 
 @app.post("/update_graph")
 async def update_graph(file: UploadFile = File(...)):
