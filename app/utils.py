@@ -918,51 +918,65 @@ def summarize_total_times(total_times):
 
 
 # Функция для преобразования данных в нужный формат JSON
-def transform_scheduling_result(scheduling_result):
+def transform_and_save_scheduling_result(scheduling_result, filename):
     transformed_data = []
 
+    def format_entry(name, id, ship_type, travel_type, initial_position, final_position, departure_time, arrival_time):
+        return {
+            "name": name,
+            "id": id,
+            "ship_type": ship_type,
+            "travel_type": travel_type,
+            "initial_position": initial_position,
+            "final_position": final_position,
+            "departure_time": departure_time,
+            "arrival_time": arrival_time
+        }
+    
+    # Обрабатываем расписание ледоколов
     for entry in scheduling_result['icebreaker_schedule']:
-        transformed_data.append({
-            'name': entry['icebreaker_name'],
-            'id': entry['icebreaker_id'],
-            'type': 'icebreaker',
-            'travel_type': 'self',
-            'initial_position': int(entry['initial_position']),
-            'final_position': int(entry['path_to_ship'][-1]['to']),
-            'departure_time': entry['arrival_time'],
-            'arrival_time': entry['start_time_with_ship']
-        })
-        transformed_data.append({
-            'name': entry['icebreaker_name'],
-            'id': entry['icebreaker_id'],
-            'type': 'icebreaker',
-            'travel_type': 'with ship',
-            'initial_position': int(entry['path_to_ship'][-1]['to']),
-            'final_position': int(entry['position_after_successful_delivery']),
-            'departure_time': entry['start_time_with_ship'],
-            'arrival_time': entry['end_time_with_ship']
-        })
+        transformed_data.append(format_entry(
+            entry['icebreaker_name'],
+            entry['icebreaker_id'],
+            'icebreaker',
+            'self',
+            entry['initial_position'],
+            entry['path_to_ship'][0]['from'] if entry['path_to_ship'] else entry['initial_position'],
+            entry['start_time_with_ship'],
+            entry['arrival_time']
+        ))
+        transformed_data.append(format_entry(
+            entry['icebreaker_name'],
+            entry['icebreaker_id'],
+            'icebreaker',
+            'with ship',
+            entry['path_to_ship'][-1]['to'] if entry['path_to_ship'] else entry['initial_position'],
+            entry['position_after_successful_delivery'],
+            entry['start_time_with_ship'],
+            entry['end_time_with_ship']
+        ))
 
+    # Обрабатываем расписание кораблей
     for entry in scheduling_result['ship_schedule']:
-        transformed_data.append({
-            'name': entry['ship_name'],
-            'id': entry['ship_id'],
-            'type': 'ship',
-            'travel_type': 'self',
-            'initial_position': int(entry['ship_path'][0]['from']),
-            'final_position': int(entry['ship_path'][0]['from']),
-            'departure_time': entry['start_time_with_icebreaker'],
-            'arrival_time': entry['start_time_with_icebreaker']
-        })
-        transformed_data.append({
-            'name': entry['ship_name'],
-            'id': entry['ship_id'],
-            'type': 'ship',
-            'travel_type': 'with icebreaker',
-            'initial_position': int(entry['ship_path'][0]['from']),
-            'final_position': int(entry['ship_path'][-1]['to']),
-            'departure_time': entry['start_time_with_icebreaker'],
-            'arrival_time': entry['end_time_with_icebreaker']
-        })
+        transformed_data.append(format_entry(
+            entry['ship_name'],
+            entry['ship_id'],
+            'ship',
+            'self',
+            entry['ship_path'][0]['from'] if entry['ship_path'] else entry['ship_id'],
+            entry['ship_path'][0]['from'] if entry['ship_path'] else entry['ship_id'],
+            entry['start_time_with_icebreaker'],
+            entry['start_time_with_icebreaker']
+        ))
+        transformed_data.append(format_entry(
+            entry['ship_name'],
+            entry['ship_id'],
+            'ship',
+            'with icebreaker',
+            entry['ship_path'][0]['from'] if entry['ship_path'] else entry['ship_id'],
+            entry['ship_path'][-1]['to'] if entry['ship_path'] else entry['ship_id'],
+            entry['start_time_with_icebreaker'],
+            entry['end_time_with_icebreaker']
+        ))
 
     return transformed_data
