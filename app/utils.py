@@ -18,6 +18,12 @@ import networkx as nx
 import math
 from datetime import datetime
 
+import numpy as np
+import random
+import math
+from datetime import timedelta
+import pandas as pd
+
 """
 1. Функции для работы с ледовыми условиями на отрезке пути
 """
@@ -478,6 +484,145 @@ def find_path(G, ship_speed, ice_class, icebreaker_class, start_id_real, end_id_
         }
         detailed_path.append(transition)
     return detailed_path
+
+"""
+6. Функции для алгоритма имитации отжига для оптимизации расписания
+"""
+
+# Функция для расчета общего времени для пути
+def calculate_travel_time(path):
+    total_time = 0
+    for segment in path:
+        total_time += segment['time']
+    return round(total_time)
+
+# Функция для генерации соседнего решения
+def generate_neighbor(schedule, G, ships_df):
+    new_schedule = {
+        'icebreaker_schedule': [icebreaker.copy() for icebreaker in schedule['icebreaker_schedule']],
+        'ship_schedule': [ship.copy() for ship in schedule['ship_schedule']]
+    }
+    ship1, ship2 = random.sample(range(len(new_schedule['ship_schedule'])), 2)
+    
+    # Меняем местами задания ледоколов для этих двух кораблей
+    new_schedule['ship_schedule'][ship1], new_schedule['ship_schedule'][ship2] = \
+        new_schedule['ship_schedule'][ship2], new_schedule['ship_schedule'][ship1]
+
+    # Пересчитываем пути и время ожидания для затронутых кораблей
+    for ship_index in [ship1, ship2]:
+        icebreaker = new_schedule['icebreaker_schedule'][ship_index]
+        ship = new_schedule['ship_schedule'][ship_index]
+
+        # Проверка наличия ключей в данных корабля и заполнение их из ships_df
+        required_keys = ['start_id_real', 'end_id_real', 'ship_id', 'speed', 'start_time']
+        for key in required_keys:
+            if key not in ship:
+                if ship['ship_id'] in ships_df['ship_id'].values:
+                    ship_data = ships_df[ships_df['ship_id'] == ship['ship_id']].iloc[0]
+                    ship[key] = ship_data[key]
+                else:
+                    raise KeyError(f"Missing key in ship data: {ship}, key: {key}")
+
+        # Определение скорости ледокола и его класса в зависимости от icebreaker_id
+        if icebreaker['icebreaker_id'] == 1:
+            icebreaker_speed = 22.0
+            icebreaker_class = 10
+        elif icebreaker['icebreaker_id'] == 2:
+            icebreaker_speed = 21.0
+            icebreaker_class = 10
+        elif icebreaker['icebreaker_id'] == 3:
+            icebreaker_speed = 18.5
+            icebreaker_class = 11
+        elif icebreaker['icebreaker_id'] == 4:
+            icebreaker_speed = 18.5
+            icebreaker_class = 11
+        else:
+            raise KeyError(f"Unknown icebreaker_id: {icebreaker['icebreaker_id']}")
+
+        # Получение скорости корабля из датафрейма requests
+        ship_speed = ships_df.loc[ships_df['ship_id'] == ship['ship_id'], 'speed'].values[0]
+
+        # Пересчитываем путь и время до пункта назначения
+        path_to_destination = find_path(G, ship_speed, icebreaker_class, icebreaker_class, ship['start_id_real'], ship['end_id_real'])
+        time_to_destination = calculate_travel_time(path_to_destination)
+        
+        # Обновляем время прибытия и время ожидания
+        ship_start_time = pd.to_datetime(ship['start_time'])
+        arrival_time = pd.to_datetime(icebreaker['start_time']) + timedelta(hours=time_to_destination)
+
+        if arrival_time < ship_start_time:
+            icebreaker_waiting_for_ship = round((ship_start_time - arrival_time).total_seconds() / 3600.0)
+            ship_waiting_time = 0
+        else:
+            icebreaker_waiting_for_ship = 0
+            ship_waiting_time = round((arrival_time - ship_start_time).total_seconds() / 3600.0)
+        
+        # Обновляем информацию в расписании ледокола
+        icebreaker_available_time = ship_start_time + timedelta(hours=ship_waiting_time + time_to_destination)
+        icebreaker_position = ship['end_id_real']
+        
+        new_schedule['icebreaker_schedule'][ship_index] = {
+            'icebreaker_id': icebreaker['icebreaker_id'],
+            'icebreaker_name': icebreaker['icebreaker_name'],
+            'ship_id': ship['ship_id'],
+            'ship_name': ship['ship_name'],
+            'start_time': ship['start_time'],
+            'arrival_time': arrival_time.strftime('%Y-%m-%d %H:%M:%S'),
+            'end_time': icebreaker_available_time.strftime('%Y-%m-%d %H:%M:%S'),
+            'wait_time_hours': icebreaker_waiting_for_ship,
+            'path': path_to_destination,
+            'speed': icebreaker_speed,
+            'ice_class_int': icebreaker_class
+        }
+
+        # Обновляем информацию в расписании корабля
+        new_schedule['ship_schedule'][ship_index] = {
+            'ship_id': ship['ship_id'],
+            'ship_name': ship['ship_name'],
+            'start_time': ship['start_time'],
+            'end_time': icebreaker_available_time.strftime('%Y-%m-%d %H:%M:%S'),
+            'wait_time_hours': ship_waiting_time,
+            'path': path_to_destination,
+            'start_id_real': ship['start_id_real'],
+            'end_id_real': ship['end_id_real'],
+            'speed': ship['speed']
+        }
+
+    return new_schedule
+
+# Имитация отжига
+def simulated_annealing(schedule, cost_function, temp, cooling_rate, G, ships_df):
+    current_schedule = schedule
+    current_cost = cost_function(current_schedule)
+    best_schedule = current_schedule
+    best_cost = current_cost
+
+    while temp > 1:
+        new_schedule = generate_neighbor(current_schedule, G, ships_df)
+        new_cost = cost_function(new_schedule)
+
+        if acceptance_probability(current_cost, new_cost, temp) > random.random():
+            current_schedule = new_schedule
+            current_cost = new_cost
+
+        if new_cost < best_cost:
+            best_schedule = new_schedule
+            best_cost = new_cost
+
+        temp *= cooling_rate
+
+    return best_schedule, best_cost
+
+def acceptance_probability(old_cost, new_cost, temperature):
+    if new_cost < old_cost:
+        return 1.0
+    return math.exp((old_cost - new_cost) / temperature)
+
+def cost_function(schedule):
+    total_ship_waiting_time = 0
+    for entry in schedule['ship_schedule']:
+        total_ship_waiting_time += entry['wait_time_hours']
+    return total_ship_waiting_time
 
 def assign_icebreaker_to_ship(G, icebreaker, ship):
     # ...
