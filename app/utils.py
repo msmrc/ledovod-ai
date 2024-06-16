@@ -1,28 +1,17 @@
 # utils.py
 import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.basemap import Basemap
 import pandas as pd
+import networkx as nx
+from datetime import datetime, timedelta
+import random
+import math
+import os
+from mpl_toolkits.basemap import Basemap
+import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from geopy.distance import geodesic
 from scipy.spatial import KDTree
 
-import numpy as np
-import pandas as pd
-import networkx as nx
-from datetime import datetime, timedelta
-
-import os
-import pandas as pd
-import networkx as nx
-import math
-from datetime import datetime
-
-import numpy as np
-import random
-import math
-from datetime import timedelta
-import pandas as pd
 
 """
 1. Функции для работы с ледовыми условиями на отрезке пути
@@ -486,7 +475,114 @@ def find_path(G, ship_speed, ice_class, icebreaker_class, start_id_real, end_id_
     return detailed_path
 
 """
-6. Функции для алгоритма имитации отжига для оптимизации расписания
+6. Функции для нахождения изначального решения по алгоритму FCFS
+"""
+
+# Функция для назначения ледокола кораблю по условиям нахождения корабля который может приплыть как можно быстрее
+def assign_icebreaker_to_ship(G, icebreaker, ship):
+    datetime_format = '%Y-%m-%d %H:%M:%S'
+    
+    icebreaker_start_time = icebreaker['start_date']
+    icebreaker_position = icebreaker['start_id_real']
+    path_to_ship = find_path(G, icebreaker['speed'], icebreaker['ice_class_int'], icebreaker['ice_class_int'], icebreaker_position, ship['start_id_real'])
+    time_to_ship = calculate_travel_time(path_to_ship)
+    arrival_time = icebreaker_start_time + timedelta(hours=time_to_ship)
+    ship_start_time = ship['start_date']
+    
+    if arrival_time < ship_start_time:
+        icebreaker_waiting_for_ship = round((ship_start_time - arrival_time).total_seconds() / 3600.0)
+        ship_waiting_time = 0
+    else:
+        icebreaker_waiting_for_ship = 0
+        ship_waiting_time = round((arrival_time - ship_start_time).total_seconds() / 3600.0)
+    
+    path_to_destination = find_path(G, icebreaker['speed'], icebreaker['ice_class_int'], icebreaker['ice_class_int'], ship['start_id_real'], ship['end_id_real'])
+    time_to_destination = calculate_travel_time(path_to_destination)
+    icebreaker_position = ship['end_id_real']
+    icebreaker_available_time = ship_start_time + timedelta(hours=ship_waiting_time + time_to_ship + time_to_destination)
+    
+    # Format the datetimes
+    arrival_time = arrival_time.strftime(datetime_format)
+    icebreaker_available_time = icebreaker_available_time.strftime(datetime_format)
+    
+    return {
+        'icebreaker_path': path_to_ship,
+        'icebreaker_waiting_for_ship': icebreaker_waiting_for_ship,
+        'ship_waiting_time': ship_waiting_time,
+        'ship_path': path_to_destination,
+        'icebreaker_available_time': icebreaker_available_time,
+        'icebreaker_available_position': icebreaker_position,
+        'time_to_ship': time_to_ship,
+        'time_to_destination': time_to_destination,
+        'arrival_time': arrival_time
+    }
+
+# Функция для принятия решения о назначении ледокола кораблям по логике какой ледокол ближе к кораблю тот и назначается
+def fcfs_scheduling(ships, icebreakers, G):
+    datetime_format = '%Y-%m-%d %H:%M:%S'
+    ships.sort(key=lambda x: x['start_date'])
+    icebreaker_schedule = []
+    ship_schedule = []
+    total_ship_waiting_time = 0
+    total_icebreaker_waiting_time = 0
+    total_icebreaker_travel_time = 0
+    total_ship_travel_time = 0
+    
+    for ship in ships:
+        best_icebreaker = None
+        best_result = None
+        
+        for icebreaker in icebreakers:
+            result = assign_icebreaker_to_ship(G, icebreaker, ship)
+            if best_result is None or result['ship_waiting_time'] < best_result['ship_waiting_time']:
+                best_icebreaker = icebreaker
+                best_result = result
+        
+        if best_icebreaker and best_result:
+            best_icebreaker['start_id_real'] = best_result['icebreaker_available_position']
+            best_icebreaker['start_date'] = pd.to_datetime(best_result['icebreaker_available_time'], format=datetime_format)
+            
+            icebreaker_schedule.append({
+                'icebreaker_id': best_icebreaker['ship_id'],
+                'icebreaker_name': best_icebreaker['ship_name'],
+                'ship_id': ship['ship_id'],
+                'ship_name': ship['ship_name'],
+                'start_time': ship['start_date'].strftime(datetime_format),
+                'arrival_time': best_result['arrival_time'],
+                'end_time': best_result['icebreaker_available_time'],
+                'wait_time_hours': best_result['icebreaker_waiting_for_ship'],
+                'path': best_result['icebreaker_path'] + best_result['ship_path']
+            })
+            
+            ship_schedule.append({
+                'ship_id': ship['ship_id'],
+                'ship_name': ship['ship_name'],
+                'start_time': ship['start_date'].strftime(datetime_format),
+                'end_time': best_result['icebreaker_available_time'],
+                'wait_time_hours': best_result['ship_waiting_time'],
+                'path': best_result['ship_path']
+            })
+            
+            total_ship_waiting_time += best_result['ship_waiting_time']
+            total_icebreaker_waiting_time += best_result['icebreaker_waiting_for_ship']
+            total_icebreaker_travel_time += best_result['time_to_ship'] + best_result['time_to_destination']
+            total_ship_travel_time += best_result['time_to_destination']
+    
+    summary = {
+        'total_ship_waiting_time': round(total_ship_waiting_time),
+        'total_icebreaker_waiting_time': round(total_icebreaker_waiting_time),
+        'total_icebreaker_travel_time': round(total_icebreaker_travel_time),
+        'total_ship_travel_time': round(total_ship_travel_time)
+    }
+    
+    return {
+        'icebreaker_schedule': icebreaker_schedule,
+        'ship_schedule': ship_schedule,
+        'summary': summary
+    }
+
+"""
+7. Функции для алгоритма имитации отжига для оптимизации расписания
 """
 
 # Функция для расчета общего времени для пути
@@ -623,21 +719,3 @@ def cost_function(schedule):
     for entry in schedule['ship_schedule']:
         total_ship_waiting_time += entry['wait_time_hours']
     return total_ship_waiting_time
-
-def assign_icebreaker_to_ship(G, icebreaker, ship):
-    # ...
-
-def fcfs_scheduling(ships, icebreakers, G):
-    # ...
-
-def generate_neighbor(schedule, G, ships_df):
-    # ...
-
-def simulated_annealing(schedule, cost_function, temp, cooling_rate, G, ships_df):
-    # ...
-
-def acceptance_probability(old_cost, new_cost, temperature):
-    # ...
-
-def cost_function(schedule):
-    # ...

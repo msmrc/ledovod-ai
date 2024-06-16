@@ -1,5 +1,9 @@
 fastapi
+numpy
 pandas
 networkx
-numpy
+matplotlib
+geopy
+scipy
+folium
 uvicorn
