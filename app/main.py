@@ -102,7 +102,7 @@ async def get_easy_ghantt():
         icebreaker['availability_time'] = icebreaker['start_date']
         icebreaker['start_id_real'] = icebreaker.get('start_id_real') 
 
-    # Очистка предыдущего результата
+
     scheduling_result = None
     # Создание расписания
     scheduling_result = fcfs_scheduling2(ships, icebreakers, G)

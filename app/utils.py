@@ -918,7 +918,8 @@ def summarize_total_times(total_times):
 
 
 # Функция для преобразования данных в нужный формат JSON
-def transform_scheduling_result(scheduling_result, filename):
+# Функция для пересчета данных и преобразования их в JSON
+def transform_scheduling_result(scheduling_result):
     transformed_data = []
 
     def format_entry(name, id, ship_type, travel_type, initial_position, final_position, departure_time, arrival_time):
@@ -940,8 +941,8 @@ def transform_scheduling_result(scheduling_result, filename):
             entry['icebreaker_id'],
             'icebreaker',
             'self',
-            entry['initial_position'],
-            entry['path_to_ship'][0]['from'] if entry['path_to_ship'] else entry['initial_position'],
+            int(entry['initial_position']),
+            int(entry['path_to_ship'][0]['from']) if entry['path_to_ship'] else int(entry['initial_position']),
             entry['start_time_with_ship'],
             entry['arrival_time']
         ))
@@ -950,8 +951,8 @@ def transform_scheduling_result(scheduling_result, filename):
             entry['icebreaker_id'],
             'icebreaker',
             'with ship',
-            entry['path_to_ship'][-1]['to'] if entry['path_to_ship'] else entry['initial_position'],
-            entry['position_after_successful_delivery'],
+            int(entry['path_to_ship'][-1]['to']) if entry['path_to_ship'] else int(entry['initial_position']),
+            int(entry['position_after_successful_delivery']),
             entry['start_time_with_ship'],
             entry['end_time_with_ship']
         ))
@@ -963,8 +964,8 @@ def transform_scheduling_result(scheduling_result, filename):
             entry['ship_id'],
             'ship',
             'self',
-            entry['ship_path'][0]['from'] if entry['ship_path'] else entry['ship_id'],
-            entry['ship_path'][0]['from'] if entry['ship_path'] else entry['ship_id'],
+            int(entry['ship_path'][0]['from']) if entry['ship_path'] else int(entry['ship_id']),
+            int(entry['ship_path'][0]['from']) if entry['ship_path'] else int(entry['ship_id']),
             entry['start_time_with_icebreaker'],
             entry['start_time_with_icebreaker']
         ))
@@ -973,8 +974,8 @@ def transform_scheduling_result(scheduling_result, filename):
             entry['ship_id'],
             'ship',
             'with icebreaker',
-            entry['ship_path'][0]['from'] if entry['ship_path'] else entry['ship_id'],
-            entry['ship_path'][-1]['to'] if entry['ship_path'] else entry['ship_id'],
+            int(entry['ship_path'][0]['from']) if entry['ship_path'] else int(entry['ship_id']),
+            int(entry['ship_path'][-1]['to']) if entry['ship_path'] else int(entry['ship_id']),
             entry['start_time_with_icebreaker'],
             entry['end_time_with_icebreaker']
         ))
