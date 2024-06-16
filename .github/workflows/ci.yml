@@ -23,7 +23,7 @@ jobs:
         python -m venv venv
         . venv/bin/activate
         pip install -r requirements.txt
-        pip install gunicorn
+        pip install gunicorn uvicorn
 
     - name: Deploy to VPS
       uses: appleboy/ssh-action@master
