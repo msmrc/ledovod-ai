@@ -413,18 +413,18 @@ def calculate_traverse_time(distance, average_speed):
 
 # Функция для загрузки графа из файла Excel
 def load_graph_from_excel(file_path):
-    # Load node and edge data from the Excel file
+    # Загрузка данных из файла
     nodes_df = pd.read_excel(file_path, sheet_name='nodes')
     edges_df = pd.read_excel(file_path, sheet_name='edges')
 
-    # Initialize an undirected graph
+    # Создание пустого графа
     G = nx.Graph()
 
-    # Add nodes to the graph
+    # Добавление узлов в граф
     for _, row in nodes_df.iterrows():
         G.add_node(row['id'], name=row['name'], latitude=row['latitude'], longitude=row['longitude'], connections=row['connections'], type=row['type'])
 
-    # Add edges to the graph
+    # Добавление рёбер в граф
     for _, row in edges_df.iterrows():
         ice_conditions_avg = max(row['ice_conditions_average'], 10)
         G.add_edge(
@@ -449,28 +449,35 @@ def update_weights(G, ship_speed, ice_class, icebreaker_class=10):
         
         data['weight'] = round(traverse_time, 2)
         data['provodka_needed'] = provodka_needed
-        
+
     
-def check_accessibility(ice_conditions_average, ice_class):
-    # ...
-
-def calculate_average_speed(ice_conditions_average, ice_class, ship_speed=20, provodka=False, icebreaker_class=10):
-    # ...
-
-def calculate_traverse_time(distance, average_speed):
-    # ...
-
-def load_graph_from_excel(file_path):
-    # ...
-
-def update_weights(G, ship_speed, ice_class, icebreaker_class=10):
-    # ...
-
-def calculate_travel_time(path):
-    # ...
-
+"""
+5. Функция для поиска кратчайшего пути на основе алгоритма Дейкстры
+"""
+   
+# Функция для поиска пути и расчета дополнительных данных
 def find_path(G, ship_speed, ice_class, icebreaker_class, start_id_real, end_id_real):
-    # ...
+    # Обновление весов рёбер
+    update_weights(G, ship_speed, ice_class, icebreaker_class)
+    # Расчет кратчайшего пути
+    path = nx.dijkstra_path(G, start_id_real, end_id_real, weight='weight')
+    
+    # Создаем список переходов с дополнительной информацией
+    detailed_path = []
+    for i in range(len(path) - 1):
+        u, v = path[i], path[i + 1]
+        data = G[u][v]
+        transition = {
+            'from': u,
+            'to': v,
+            'distance': data['distance'],
+            'ice_conditions_average': data['ice_conditions_average'],
+            'average_speed': ship_speed,  # средняя скорость
+            'time': round(data['distance'] / ship_speed, 2),  # время прохождения
+            'icebreaker_needed': data['provodka_needed'] # необходимость в ледоколе
+        }
+        detailed_path.append(transition)
+    return detailed_path
 
 def assign_icebreaker_to_ship(G, icebreaker, ship):
     # ...
