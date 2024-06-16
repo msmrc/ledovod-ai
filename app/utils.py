@@ -918,7 +918,7 @@ def summarize_total_times(total_times):
 
 
 # Функция для преобразования данных в нужный формат JSON
-def transform_and_save_scheduling_result(scheduling_result, filename):
+def transform_scheduling_result(scheduling_result, filename):
     transformed_data = []
 
     def format_entry(name, id, ship_type, travel_type, initial_position, final_position, departure_time, arrival_time):
